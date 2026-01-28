@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fitness Toolkit - 运动数据同步工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8" x-data="appData()" x-init="init()">
+        
+        <h1 class="text-3xl font-bold mb-8">Fitness Toolkit</h1>
+        
+        <!-- Navigation -->
+        <nav class="mb-6">
+            <button @click="tab = 'accounts'" :class="{'bg-blue-500 text-white': tab === 'accounts', 'bg-gray-200': tab !== 'accounts'}" class="px-4 py-2 rounded mr-2">账号管理</button>
+            <button @click="tab = 'download'" :class="{'bg-blue-500 text-white': tab === 'download', 'bg-gray-200': tab !== 'download'}" class="px-4 py-2 rounded mr-2">下载数据</button>
+            <button @click="tab = 'tasks'" :class="{'bg-blue-500 text-white': tab === 'tasks', 'bg-gray-200': tab !== 'tasks'}" class="px-4 py-2 rounded">定时任务</button>
+        </nav>
+        
+        <!-- Account Management Tab -->
+        <div x-show="tab === 'accounts'" class="bg-white p-6 rounded shadow">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold">账号管理</h2>
+                <button @click="openAccountModal()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition-colors">+ 新增账号</button>
+            </div>
+            
+            <!-- Account List -->
+            <div class="overflow-x-auto">
+                <table class="w-full table-auto">
+                    <thead>
+                        <tr class="bg-gray-50">
+                            <th class="px-4 py-2 text-left">平台</th>
+                            <th class="px-4 py-2 text-left">账号</th>
+                            <th class="px-4 py-2 text-left">创建时间</th>
+                            <th class="px-4 py-2 text-left">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="account in accounts" :key="account.platform">
+                            <tr class="border-b hover:bg-gray-50">
+                                <td class="px-4 py-3">
+                                    <span class="inline-flex items-center px-2 py-1 rounded text-sm font-medium" :class="account.platform === 'garmin' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'" x-text="account.platform === 'garmin' ? '佳明' : '高驰'"></span>
+                                </td>
+                                <td class="px-4 py-3" x-text="account.email"></td>
+                                <td class="px-4 py-3" x-text="formatDate(account.created_at)"></td>
+                                <td class="px-4 py-3">
+                                    <button @click="verifyAccount(account)" :disabled="account.verifying" class="text-green-600 hover:text-green-800 mr-3">
+                                        <span x-show="!account.verifying">验证</span>
+                                        <span x-show="account.verifying">验证中...</span>
+                                    </button>
+                                    <button @click="editAccount(account)" class="text-blue-600 hover:text-blue-800 mr-3">编辑</button>
+                                    <button @click="deleteAccount(account.platform)" class="text-red-600 hover:text-red-800">删除</button>
+                                </td>
+                            </tr>
+                        </template>
+                        <tr x-show="accounts.length === 0">
+                            <td colspan="4" class="px-4 py-8 text-center text-gray-500">暂无账号，请点击"新增账号"添加</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Account Modal -->
+            <div x-show="accountModal.show" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="display: none;">
+                <div class="bg-white p-6 rounded shadow-lg w-full max-w-md">
+                    <h3 class="text-lg font-semibold mb-4" x-text="accountModal.editing ? '编辑账号' : '新增账号'"></h3>
+                    <div x-show="accountModal.error" class="mb-4 p-3 bg-red-100 text-red-700 rounded" x-text="accountModal.error"></div>
+                    <form @submit.prevent="saveAccount()">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">平台</label>
+                            <select x-model="accountModal.form.platform" :disabled="accountModal.editing" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
+                                <option value="garmin">佳明 (Garmin)</option>
+                                <option value="coros">高驰 (COROS)</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">账号</label>
+                            <input type="text" x-model="accountModal.form.email" required placeholder="邮箱或手机号" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="mb-6">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">密码</label>
+                            <input type="password" x-model="accountModal.form.password" :required="!accountModal.editing" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p x-show="accountModal.editing" class="text-sm text-gray-500 mt-1">留空表示不修改密码</p>
+                        </div>
+                        <div class="flex justify-end space-x-3">
+                            <button type="button" @click="closeAccountModal()" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
+                            <button type="submit" :disabled="accountModal.loading" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50">
+                                <span x-show="!accountModal.loading">保存</span>
+                                <span x-show="accountModal.loading">保存中...</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Download Data Tab -->
+        <div x-show="tab === 'download'" class="bg-white p-6 rounded shadow">
+            <h2 class="text-xl font-semibold mb-6">下载数据</h2>
+            
+            <!-- Download Form -->
+            <div class="bg-gray-50 p-6 rounded-lg mb-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">平台</label>
+                        <select x-model="downloadForm.platform" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">请选择平台</option>
+                            <option value="garmin">佳明 (Garmin)</option>
+                            <option value="coros">高驰 (COROS)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">文件格式</label>
+                        <select x-model="downloadForm.format" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="tcx">TCX</option>
+                            <option value="gpx">GPX</option>
+                            <option value="fit">FIT</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">开始日期</label>
+                        <input type="date" x-model="downloadForm.startDate" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">结束日期</label>
+                        <input type="date" x-model="downloadForm.endDate" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">活动类型（可选）</label>
+                    <input type="text" x-model="downloadForm.activityType" placeholder="例如：running, cycling" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-sm text-gray-500 mt-1">留空表示下载所有类型的活动</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button @click="startDownload()" :disabled="downloadLoading || !downloadForm.platform" class="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                        <span x-show="!downloadLoading">开始下载</span>
+                        <span x-show="downloadLoading">下载中...</span>
+                    </button>
+                    <button @click="setQuickDateRange(7)" class="px-4 py-2 text-sm text-blue-600 hover:text-blue-800">最近7天</button>
+                    <button @click="setQuickDateRange(30)" class="px-4 py-2 text-sm text-blue-600 hover:text-blue-800">最近30天</button>
+                </div>
+            </div>
+            
+            <!-- Download Progress -->
+            <div x-show="downloadLoading" class="mb-6">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-700">下载进度</span>
+                    <span class="text-sm text-gray-500" x-text="downloadProgressText"></span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" :style="'width: ' + downloadProgress + '%'"></div>
+                </div>
+            </div>
+            
+            <!-- Download Results -->
+            <div x-show="downloadResult.show" class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-medium">下载结果</h3>
+                    <button @click="clearDownloadResult()" class="text-sm text-gray-500 hover:text-gray-700">清除结果</button>
+                </div>
+                
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-blue-50 p-4 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-blue-600" x-text="downloadResult.total"></div>
+                        <div class="text-sm text-gray-600">总活动数</div>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-green-600" x-text="downloadResult.downloaded"></div>
+                        <div class="text-sm text-gray-600">已下载</div>
+                    </div>
+                    <div class="bg-yellow-50 p-4 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-yellow-600" x-text="downloadResult.skipped"></div>
+                        <div class="text-sm text-gray-600">已跳过</div>
+                    </div>
+                    <div class="bg-red-50 p-4 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-red-600" x-text="downloadResult.failed"></div>
+                        <div class="text-sm text-gray-600">失败</div>
+                    </div>
+                </div>
+                
+                <!-- Error Messages -->
+                <div x-show="downloadResult.error" class="p-4 bg-red-100 text-red-700 rounded-lg" x-text="downloadResult.error"></div>
+                
+                <!-- Downloaded Files -->
+                <div x-show="downloadResult.downloadedList.length > 0" class="mt-4">
+                    <h4 class="font-medium mb-2 text-green-700">已下载文件</h4>
+                    <div class="bg-green-50 p-4 rounded-lg max-h-60 overflow-y-auto">
+                        <ul class="space-y-1">
+                            <template x-for="item in downloadResult.downloadedList" :key="item.activity_id">
+                                <li class="text-sm text-green-800 flex items-center">
+                                    <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                                    </svg>
+                                    <span x-text="item.activity_id + ' - ' + item.path.split('/').pop()"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Failed Files -->
+                <div x-show="downloadResult.failedList.length > 0" class="mt-4">
+                    <h4 class="font-medium mb-2 text-red-700">下载失败</h4>
+                    <div class="bg-red-50 p-4 rounded-lg max-h-60 overflow-y-auto">
+                        <ul class="space-y-1">
+                            <template x-for="item in downloadResult.failedList" :key="item.activity_id">
+                                <li class="text-sm text-red-800 flex items-start">
+                                    <svg class="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                    </svg>
+                                    <span x-text="item.activity_id + ': ' + (item.error || '未知错误')"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Empty State -->
+            <div x-show="!downloadResult.show && !downloadLoading" class="text-center py-12 text-gray-500">
+                <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                </svg>
+                <p>选择平台、日期范围和文件格式，然后点击"开始下载"</p>
+            </div>
+        </div>
+        
+        <!-- Scheduler Tab -->
+        <div x-show="tab === 'tasks'" class="bg-white p-6 rounded shadow">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold">定时任务</h2>
+                <button @click="openTaskModal()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition-colors">+ 新增任务</button>
+            </div>
+
+            <!-- Task List -->
+            <div class="overflow-x-auto">
+                <table class="w-full table-auto">
+                    <thead>
+                        <tr class="bg-gray-50">
+                            <th class="px-4 py-2 text-left">平台</th>
+                            <th class="px-4 py-2 text-left">状态</th>
+                            <th class="px-4 py-2 text-left">Cron表达式</th>
+                            <th class="px-4 py-2 text-left">格式</th>
+                            <th class="px-4 py-2 text-left">上次运行</th>
+                            <th class="px-4 py-2 text-left">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="task in tasks" :key="task.platform">
+                            <tr class="border-b hover:bg-gray-50">
+                                <td class="px-4 py-3">
+                                    <span class="inline-flex items-center px-2 py-1 rounded text-sm font-medium" :class="task.platform === 'garmin' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'" x-text="task.platform === 'garmin' ? '佳明' : '高驰'"></span>
+                                </td>
+                                <td class="px-4 py-3">
+                                    <span class="inline-flex items-center px-2 py-1 rounded text-sm font-medium" :class="task.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'" x-text="task.enabled ? '启用' : '禁用'"></span>
+                                </td>
+                                <td class="px-4 py-3 font-mono text-sm" x-text="task.cron_expression"></td>
+                                <td class="px-4 py-3 uppercase" x-text="task.file_format"></td>
+                                <td class="px-4 py-3" x-text="formatDate(task.last_run)"></td>
+                                <td class="px-4 py-3">
+                                    <button x-show="!task.enabled" @click="enableTask(task.platform)" class="text-green-600 hover:text-green-800 mr-3">启用</button>
+                                    <button x-show="task.enabled" @click="disableTask(task.platform)" class="text-yellow-600 hover:text-yellow-800 mr-3">禁用</button>
+                                    <button @click="deleteTask(task.platform)" class="text-red-600 hover:text-red-800">删除</button>
+                                </td>
+                            </tr>
+                        </template>
+                        <tr x-show="tasks.length === 0">
+                            <td colspan="6" class="px-4 py-8 text-center text-gray-500">暂无定时任务，请点击"新增任务"添加</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Cron Expression Help -->
+            <div class="mt-6 p-4 bg-blue-50 rounded-lg">
+                <h4 class="font-medium mb-2 text-blue-800">Cron 表达式说明</h4>
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                    <div class="text-center">
+                        <div class="font-mono font-bold">分</div>
+                        <div class="text-gray-600">0-59</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="font-mono font-bold">时</div>
+                        <div class="text-gray-600">0-23</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="font-mono font-bold">日</div>
+                        <div class="text-gray-600">1-31</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="font-mono font-bold">月</div>
+                        <div class="text-gray-600">1-12</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="font-mono font-bold">周</div>
+                        <div class="text-gray-600">0-6</div>
+                    </div>
+                </div>
+                <div class="mt-3 text-sm text-gray-700 space-y-1">
+                    <p><span class="font-mono bg-white px-2 py-0.5 rounded">0 2 * * *</span> - 每天凌晨2点</p>
+                    <p><span class="font-mono bg-white px-2 py-0.5 rounded">0 */6 * * *</span> - 每6小时</p>
+                    <p><span class="font-mono bg-white px-2 py-0.5 rounded">0 8 * * 1</span> - 每周一早上8点</p>
+                </div>
+            </div>
+
+            <!-- Task Modal -->
+            <div x-show="taskModal.show" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="display: none;">
+                <div class="bg-white p-6 rounded shadow-lg w-full max-w-md">
+                    <h3 class="text-lg font-semibold mb-4">新增定时任务</h3>
+                    <div x-show="taskModal.error" class="mb-4 p-3 bg-red-100 text-red-700 rounded" x-text="taskModal.error"></div>
+                    <form @submit.prevent="saveTask()">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">平台</label>
+                            <select x-model="taskModal.form.platform" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">请选择平台</option>
+                                <option value="garmin">佳明 (Garmin)</option>
+                                <option value="coros">高驰 (COROS)</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Cron 表达式</label>
+                            <input type="text" x-model="taskModal.form.cronExpression" placeholder="0 2 * * *" required class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono">
+                            <p class="text-sm text-gray-500 mt-1">例如: 0 2 * * * (每天凌晨2点)</p>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">文件格式</label>
+                            <select x-model="taskModal.form.fileFormat" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="tcx">TCX</option>
+                                <option value="gpx">GPX</option>
+                                <option value="fit">FIT</option>
+                            </select>
+                        </div>
+                        <div class="mb-6">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">活动类型（可选）</label>
+                            <input type="text" x-model="taskModal.form.activityTypes" placeholder="例如：running, cycling" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p class="text-sm text-gray-500 mt-1">留空表示同步所有类型的活动</p>
+                        </div>
+                        <div class="flex justify-end space-x-3">
+                            <button type="button" @click="closeTaskModal()" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
+                            <button type="submit" :disabled="taskModal.loading" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50">
+                                <span x-show="!taskModal.loading">保存</span>
+                                <span x-show="taskModal.loading">保存中...</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function appData() {
+            return {
+                tab: 'accounts',
+                accounts: [],
+                downloadForm: {
+                    platform: '',
+                    startDate: '',
+                    endDate: '',
+                    format: 'tcx',
+                    activityType: ''
+                },
+                downloadLoading: false,
+                downloadProgress: 0,
+                downloadProgressText: '',
+                downloadResult: {
+                    show: false,
+                    total: 0,
+                    downloaded: 0,
+                    skipped: 0,
+                    failed: 0,
+                    downloadedList: [],
+                    skippedList: [],
+                    failedList: [],
+                    error: ''
+                },
+                accountModal: {
+                    show: false,
+                    editing: false,
+                    loading: false,
+                    error: '',
+                    form: {
+                        platform: 'garmin',
+                        email: '',
+                        password: ''
+                    }
+                },
+                tasks: [],
+                taskModal: {
+                    show: false,
+                    loading: false,
+                    error: '',
+                    form: {
+                        platform: '',
+                        cronExpression: '0 2 * * *',
+                        fileFormat: 'tcx',
+                        activityTypes: ''
+                    }
+                },
+
+                async init() {
+                    await this.loadAccounts();
+                    await this.loadTasks();
+                },
+                
+                async loadAccounts() {
+                    try {
+                        const response = await fetch('/api/accounts');
+                        const data = await response.json();
+                        this.accounts = (data.accounts || []).map(acc => ({...acc, verifying: false}));
+                    } catch (error) {
+                        console.error('Failed to load accounts:', error);
+                        alert('加载账号列表失败');
+                    }
+                },
+                
+                openAccountModal() {
+                    this.accountModal.editing = false;
+                    this.accountModal.form = { platform: 'garmin', email: '', password: '' };
+                    this.accountModal.error = '';
+                    this.accountModal.show = true;
+                },
+                
+                editAccount(account) {
+                    this.accountModal.editing = true;
+                    this.accountModal.form = { 
+                        platform: account.platform, 
+                        email: account.email, 
+                        password: '' 
+                    };
+                    this.accountModal.error = '';
+                    this.accountModal.show = true;
+                },
+                
+                closeAccountModal() {
+                    this.accountModal.show = false;
+                    this.accountModal.editing = false;
+                    this.accountModal.error = '';
+                    this.accountModal.form = { platform: 'garmin', email: '', password: '' };
+                },
+                
+                async saveAccount() {
+                    // Validation
+                    if (!this.accountModal.form.email) {
+                        this.accountModal.error = '请输入账号（邮箱或手机号）';
+                        return;
+                    }
+
+                    if (!this.accountModal.editing && !this.accountModal.form.password) {
+                        this.accountModal.error = '请输入密码';
+                        return;
+                    }
+                    
+                    this.accountModal.loading = true;
+                    this.accountModal.error = '';
+                    
+                    try {
+                        const response = await fetch('/api/accounts', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.accountModal.form)
+                        });
+                        
+                        if (response.ok) {
+                            await this.loadAccounts();
+                            this.closeAccountModal();
+                        } else {
+                            const data = await response.json();
+                            this.accountModal.error = data.error || '保存失败';
+                        }
+                    } catch (error) {
+                        this.accountModal.error = '网络错误，请重试';
+                    } finally {
+                        this.accountModal.loading = false;
+                    }
+                },
+                
+                async deleteAccount(platform) {
+                    if (!confirm('确定要删除这个账号吗？此操作不可恢复。')) {
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch('/api/accounts/' + platform, {
+                            method: 'DELETE'
+                        });
+
+                        if (response.ok) {
+                            await this.loadAccounts();
+                        } else {
+                            const data = await response.json();
+                            alert(data.error || '删除失败');
+                        }
+                    } catch (error) {
+                        alert('网络错误，请重试');
+                    }
+                },
+
+                async verifyAccount(account) {
+                    account.verifying = true;
+
+                    try {
+                        const response = await fetch('/api/accounts/' + account.platform + '/verify', {
+                            method: 'POST'
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok && data.verified) {
+                            alert('账号验证成功！');
+                        } else {
+                            alert('账号验证失败：' + (data.error || '请检查邮箱和密码是否正确'));
+                        }
+                    } catch (error) {
+                        alert('网络错误，请重试');
+                    } finally {
+                        account.verifying = false;
+                    }
+                },
+                
+                formatDate(dateStr) {
+                    if (!dateStr) return '-';
+                    const date = new Date(dateStr);
+                    return date.toLocaleString('zh-CN');
+                },
+
+                setQuickDateRange(days) {
+                    const end = new Date();
+                    const start = new Date();
+                    start.setDate(end.getDate() - days);
+                    this.downloadForm.endDate = end.toISOString().split('T')[0];
+                    this.downloadForm.startDate = start.toISOString().split('T')[0];
+                },
+
+                async startDownload() {
+                    if (!this.downloadForm.platform) {
+                        alert('请选择平台');
+                        return;
+                    }
+                    if (!this.downloadForm.startDate || !this.downloadForm.endDate) {
+                        alert('请选择开始和结束日期');
+                        return;
+                    }
+
+                    this.downloadLoading = true;
+                    this.downloadProgress = 0;
+                    this.downloadProgressText = '准备下载...';
+                    this.clearDownloadResult();
+
+                    try {
+                        const response = await fetch('/api/downloads', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                account_id: this.downloadForm.platform,
+                                start_date: this.downloadForm.startDate,
+                                end_date: this.downloadForm.endDate,
+                                format: this.downloadForm.format,
+                                activity_types: this.downloadForm.activityType || null
+                            })
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            this.downloadResult.show = true;
+                            this.downloadResult.total = data.total || 0;
+                            this.downloadResult.downloaded = data.downloaded || 0;
+                            this.downloadResult.skipped = data.skipped || 0;
+                            this.downloadResult.failed = data.failed || 0;
+                            this.downloadResult.downloadedList = data.details?.downloaded || [];
+                            this.downloadResult.skippedList = data.details?.skipped || [];
+                            this.downloadResult.failedList = data.details?.failed || [];
+                            this.downloadProgress = 100;
+                            this.downloadProgressText = `完成: ${data.downloaded} 已下载, ${data.skipped} 已跳过, ${data.failed} 失败`;
+                        } else {
+                            this.downloadResult.show = true;
+                            this.downloadResult.error = data.error || '下载失败';
+                            this.downloadProgress = 0;
+                            this.downloadProgressText = '下载失败';
+                        }
+                    } catch (error) {
+                        this.downloadResult.show = true;
+                        this.downloadResult.error = '网络错误: ' + error.message;
+                        this.downloadProgress = 0;
+                        this.downloadProgressText = '下载失败';
+                    } finally {
+                        this.downloadLoading = false;
+                    }
+                },
+
+                clearDownloadResult() {
+                    this.downloadResult.show = false;
+                    this.downloadResult.total = 0;
+                    this.downloadResult.downloaded = 0;
+                    this.downloadResult.skipped = 0;
+                    this.downloadResult.failed = 0;
+                    this.downloadResult.downloadedList = [];
+                    this.downloadResult.skippedList = [];
+                    this.downloadResult.failedList = [];
+                    this.downloadResult.error = '';
+                    this.downloadProgress = 0;
+                    this.downloadProgressText = '';
+                },
+
+                async loadTasks() {
+                    try {
+                        const response = await fetch('/api/tasks');
+                        const data = await response.json();
+                        this.tasks = data.tasks || [];
+                    } catch (error) {
+                        console.error('Failed to load tasks:', error);
+                    }
+                },
+
+                openTaskModal() {
+                    this.taskModal.form = {
+                        platform: '',
+                        cronExpression: '0 2 * * *',
+                        fileFormat: 'tcx',
+                        activityTypes: ''
+                    };
+                    this.taskModal.error = '';
+                    this.taskModal.show = true;
+                },
+
+                closeTaskModal() {
+                    this.taskModal.show = false;
+                    this.taskModal.error = '';
+                    this.taskModal.form = {
+                        platform: '',
+                        cronExpression: '0 2 * * *',
+                        fileFormat: 'tcx',
+                        activityTypes: ''
+                    };
+                },
+
+                async saveTask() {
+                    if (!this.taskModal.form.platform) {
+                        this.taskModal.error = '请选择平台';
+                        return;
+                    }
+                    if (!this.taskModal.form.cronExpression) {
+                        this.taskModal.error = '请输入 Cron 表达式';
+                        return;
+                    }
+
+                    this.taskModal.loading = true;
+                    this.taskModal.error = '';
+
+                    try {
+                        const response = await fetch('/api/tasks', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                account_id: this.taskModal.form.platform,
+                                name: this.taskModal.form.platform + '_sync',
+                                cron_expression: this.taskModal.form.cronExpression,
+                                format: this.taskModal.form.fileFormat,
+                                activity_types: this.taskModal.form.activityTypes || null
+                            })
+                        });
+
+                        if (response.ok) {
+                            await this.loadTasks();
+                            this.closeTaskModal();
+                        } else {
+                            const data = await response.json();
+                            this.taskModal.error = data.error || '保存失败';
+                        }
+                    } catch (error) {
+                        this.taskModal.error = '网络错误，请重试';
+                    } finally {
+                        this.taskModal.loading = false;
+                    }
+                },
+
+                async enableTask(platform) {
+                    try {
+                        const response = await fetch('/api/tasks/' + platform + '/enable', {
+                            method: 'POST'
+                        });
+                        if (response.ok) {
+                            await this.loadTasks();
+                        } else {
+                            alert('启用失败');
+                        }
+                    } catch (error) {
+                        alert('网络错误');
+                    }
+                },
+
+                async disableTask(platform) {
+                    try {
+                        const response = await fetch('/api/tasks/' + platform + '/disable', {
+                            method: 'POST'
+                        });
+                        if (response.ok) {
+                            await this.loadTasks();
+                        } else {
+                            alert('禁用失败');
+                        }
+                    } catch (error) {
+                        alert('网络错误');
+                    }
+                },
+
+                async deleteTask(platform) {
+                    if (!confirm('确定要删除这个定时任务吗？此操作不可恢复。')) {
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch('/api/tasks/' + platform, {
+                            method: 'DELETE'
+                        });
+                        if (response.ok) {
+                            await this.loadTasks();
+                        } else {
+                            alert('删除失败');
+                        }
+                    } catch (error) {
+                        alert('网络错误');
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
