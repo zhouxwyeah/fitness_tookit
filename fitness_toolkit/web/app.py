@@ -1,13 +1,12 @@
-"""Flask web application."""
-
 from flask import Flask, jsonify, request, render_template
 import logging
 
 from fitness_toolkit.config import Config
-from fitness_toolkit.database import init_db
+from fitness_toolkit.database import init_db, save_operation_history, get_operation_history
 from fitness_toolkit.services.account import AccountService
 from fitness_toolkit.services.download import DownloadService
 from fitness_toolkit.services.scheduler import SchedulerService
+from fitness_toolkit.services.transfer import TransferService
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +82,17 @@ def create_app():
                 activity_type=data.get('activity_types'),
                 file_format=data.get('format', 'tcx')
             )
+            save_operation_history(
+                operation_type='download',
+                platform=data['account_id'],
+                start_date=data['start_date'],
+                end_date=data['end_date'],
+                total=result.get('total', 0),
+                success=result.get('downloaded', 0),
+                skipped=result.get('skipped', 0),
+                failed=result.get('failed', 0),
+                details=result.get('details')
+            )
             return jsonify(result)
         except Exception as e:
             return jsonify({'error': str(e)}), 400
@@ -129,7 +139,47 @@ def create_app():
         if scheduler_service.delete_task(task_id):
             return jsonify({'message': 'Task deleted successfully'})
         return jsonify({'error': 'Task not found'}), 404
-    
+
+    @app.route('/api/transfer', methods=['POST'])
+    def transfer():
+        from datetime import datetime
+        data = request.json
+        transfer_service = TransferService()
+        try:
+            start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+            end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+            sport_types = data.get('sport_types')
+            result = transfer_service.transfer(
+                start_date=start_date,
+                end_date=end_date,
+                sport_types=sport_types
+            )
+            save_operation_history(
+                operation_type='transfer',
+                platform='coros->garmin',
+                start_date=data['start_date'],
+                end_date=data['end_date'],
+                total=result.get('total', 0),
+                success=result.get('uploaded', 0),
+                skipped=result.get('skipped', 0),
+                failed=len(result.get('failed', [])),
+                details=result
+            )
+            return jsonify(result)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/history/<operation_type>', methods=['GET'])
+    def get_history(operation_type):
+        """Get operation history by type (download or transfer)."""
+        if operation_type not in ('download', 'transfer'):
+            return jsonify({'error': 'Invalid operation type'}), 400
+        limit = request.args.get('limit', 50, type=int)
+        history = get_operation_history(operation_type=operation_type, limit=limit)
+        return jsonify({'history': history})
+
     return app
 
 

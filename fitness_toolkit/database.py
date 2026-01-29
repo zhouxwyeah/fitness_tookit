@@ -62,6 +62,23 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Operation history table for download/transfer logs
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS operation_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation_type TEXT NOT NULL,
+                platform TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                total INTEGER DEFAULT 0,
+                success INTEGER DEFAULT 0,
+                skipped INTEGER DEFAULT 0,
+                failed INTEGER DEFAULT 0,
+                details TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         
         conn.commit()
         logger.info("Database initialized successfully")
@@ -186,3 +203,38 @@ def delete_sync_task(platform):
         cursor.execute("DELETE FROM sync_tasks WHERE platform = ?", (platform,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+def save_operation_history(operation_type, platform, start_date, end_date, total, success, skipped, failed, details=None):
+    """Save an operation history record."""
+    import json
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO operation_history 
+               (operation_type, platform, start_date, end_date, total, success, skipped, failed, details)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (operation_type, platform, start_date, end_date, total, success, skipped, failed, 
+             json.dumps(details) if details else None)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_operation_history(operation_type=None, limit=50):
+    """Get operation history, optionally filtered by type."""
+    import json
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if operation_type:
+            cursor.execute(
+                "SELECT * FROM operation_history WHERE operation_type = ? ORDER BY created_at DESC LIMIT ?",
+                (operation_type, limit)
+            )
+        else:
+            cursor.execute("SELECT * FROM operation_history ORDER BY created_at DESC LIMIT ?", (limit,))
+        rows = [dict(row) for row in cursor.fetchall()]
+        for row in rows:
+            if row.get('details'):
+                row['details'] = json.loads(row['details'])
+        return rows

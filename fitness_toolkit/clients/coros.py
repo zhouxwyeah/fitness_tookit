@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import re
 import time
 from datetime import date
 from pathlib import Path
@@ -19,6 +20,21 @@ COROS_FILE_TYPES = {
     "fit": 4,
     "tcx": 3,
 }
+
+
+def fix_tcx_extensions(content: bytes) -> bytes:
+    """Fix COROS TCX Extensions to be Garmin-compatible.
+    
+    COROS exports: <Extensions><Speed>X</Speed></Extensions>
+    Garmin expects: <Extensions><ns3:TPX><ns3:Speed>X</ns3:Speed></ns3:TPX></Extensions>
+    """
+    text = content.decode("utf-8")
+    
+    pattern = r'<Extensions>\s*<Speed>([^<]+)</Speed>\s*</Extensions>'
+    replacement = r'<Extensions><ns3:TPX><ns3:Speed>\1</ns3:Speed></ns3:TPX></Extensions>'
+    
+    fixed = re.sub(pattern, replacement, text)
+    return fixed.encode("utf-8")
 
 
 class CorosClient(BaseClient):
@@ -156,8 +172,12 @@ class CorosClient(BaseClient):
             
             save_path.parent.mkdir(parents=True, exist_ok=True)
             
+            content = file_response.content
+            if file_format.lower() == "tcx":
+                content = fix_tcx_extensions(content)
+            
             with open(save_path, 'wb') as f:
-                f.write(file_response.content)
+                f.write(content)
             
             logger.info(f"Downloaded activity {label_id} to {save_path}")
             return save_path
