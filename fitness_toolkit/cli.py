@@ -1,13 +1,13 @@
-"""CLI implementation for fitness_toolkit using Click."""
-
 import click
 from datetime import datetime
 from getpass import getpass
+from pathlib import Path
 
 from fitness_toolkit.config import Config
 from fitness_toolkit.database import init_db
 from fitness_toolkit.services.account import AccountService
 from fitness_toolkit.services.download import DownloadService
+from fitness_toolkit.services.transfer import TransferService
 
 
 @click.group()
@@ -147,6 +147,55 @@ def web(host, port):
     app = create_app()
     click.echo(f"Starting web server at http://{host}:{port}")
     app.run(host=host, port=port, debug=False)
+
+
+@cli.command()
+@click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
+@click.option('--end', required=True, help='End date (YYYY-MM-DD)')
+@click.option('--sport-type', multiple=True, help='Sport type filter (can specify multiple)')
+@click.option('--save-dir', type=click.Path(), help='Directory to save FIT files (default: current directory)')
+def transfer(start, end, sport_type, save_dir):
+    try:
+        start_date = datetime.strptime(start, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end, '%Y-%m-%d').date()
+    except ValueError:
+        click.echo("Error: Invalid date format. Use YYYY-MM-DD", err=True)
+        raise click.Abort()
+
+    sport_types = list(sport_type) if sport_type else None
+    save_directory = Path(save_dir) if save_dir else Path.cwd()
+
+    service = TransferService()
+    try:
+        result = service.transfer(
+            start_date=start_date,
+            end_date=end_date,
+            sport_types=sport_types,
+            save_dir=save_directory
+        )
+
+        click.echo(f"\nTransfer Summary (COROS → Garmin):")
+        click.echo(f"  Total activities found: {result['total']}")
+        click.echo(f"  Successfully transferred: {result['uploaded']}")
+        click.echo(f"  Skipped (already exists): {result['skipped']}")
+        click.echo(f"  Failed: {len(result['failed'])}")
+
+        if result['failed']:
+            click.echo("\nFailed activities:")
+            for failure in result['failed']:
+                click.echo(f"  - {failure.get('name', 'Unknown')}: {failure.get('error', 'Unknown error')}")
+
+        click.echo(f"\nFIT files saved to: {save_directory}")
+
+    except ValueError as e:
+        click.echo(f"Configuration error: {e}", err=True)
+        click.echo("Please configure both COROS and Garmin accounts first:", err=True)
+        click.echo("  fitness_toolkit config configure coros", err=True)
+        click.echo("  fitness_toolkit config configure garmin", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
 
 
 def main():

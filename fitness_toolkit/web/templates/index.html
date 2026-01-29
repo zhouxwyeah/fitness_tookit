@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fitness Toolkit - 运动数据同步工具</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
 </head>
 <body class="bg-gray-100">
     <div class="container mx-auto px-4 py-8" x-data="appData()" x-init="init()">
@@ -16,6 +16,7 @@
         <nav class="mb-6">
             <button @click="tab = 'accounts'" :class="{'bg-blue-500 text-white': tab === 'accounts', 'bg-gray-200': tab !== 'accounts'}" class="px-4 py-2 rounded mr-2">账号管理</button>
             <button @click="tab = 'download'" :class="{'bg-blue-500 text-white': tab === 'download', 'bg-gray-200': tab !== 'download'}" class="px-4 py-2 rounded mr-2">下载数据</button>
+            <button @click="tab = 'transfer'" :class="{'bg-blue-500 text-white': tab === 'transfer', 'bg-gray-200': tab !== 'transfer'}" class="px-4 py-2 rounded mr-2">同步到佳明</button>
             <button @click="tab = 'tasks'" :class="{'bg-blue-500 text-white': tab === 'tasks', 'bg-gray-200': tab !== 'tasks'}" class="px-4 py-2 rounded">定时任务</button>
         </nav>
         
@@ -220,14 +221,198 @@
             </div>
             
             <!-- Empty State -->
-            <div x-show="!downloadResult.show && !downloadLoading" class="text-center py-12 text-gray-500">
+            <div x-show="!downloadResult.show && !downloadLoading && downloadHistory.length === 0" class="text-center py-12 text-gray-500">
                 <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
                 </svg>
                 <p>选择平台、日期范围和文件格式，然后点击"开始下载"</p>
             </div>
+
+            <!-- Download History -->
+            <div x-show="downloadHistory.length > 0" class="mt-8">
+                <h3 class="text-lg font-medium mb-4">下载历史</h3>
+                <div class="overflow-x-auto max-h-80 overflow-y-auto border rounded-lg">
+                    <table class="w-full table-auto">
+                        <thead class="bg-gray-50 sticky top-0">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">时间</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">平台</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">日期范围</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">总数</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">成功</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">跳过</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">失败</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="record in downloadHistory" :key="record.id">
+                                <tr class="border-t hover:bg-gray-50">
+                                    <td class="px-4 py-2 text-sm text-gray-600" x-text="formatDate(record.created_at)"></td>
+                                    <td class="px-4 py-2">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium" :class="record.platform === 'garmin' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'" x-text="record.platform === 'garmin' ? '佳明' : '高驰'"></span>
+                                    </td>
+                                    <td class="px-4 py-2 text-sm text-gray-600" x-text="record.start_date + ' ~ ' + record.end_date"></td>
+                                    <td class="px-4 py-2 text-sm font-medium text-blue-600" x-text="record.total"></td>
+                                    <td class="px-4 py-2 text-sm font-medium text-green-600" x-text="record.success"></td>
+                                    <td class="px-4 py-2 text-sm font-medium text-yellow-600" x-text="record.skipped"></td>
+                                    <td class="px-4 py-2 text-sm font-medium text-red-600" x-text="record.failed"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
         
+        <!-- Transfer Tab -->
+        <div x-show="tab === 'transfer'" class="bg-white p-6 rounded shadow">
+            <h2 class="text-xl font-semibold mb-6">同步到佳明</h2>
+            <p class="text-gray-600 mb-6">将高驰(COROS)的活动记录同步上传到佳明(Garmin)平台</p>
+
+            <!-- Transfer Form -->
+            <div class="bg-gray-50 p-6 rounded-lg mb-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">开始日期</label>
+                        <input type="date" x-model="transferForm.startDate" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">结束日期</label>
+                        <input type="date" x-model="transferForm.endDate" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">运动类型（可选）</label>
+                    <input type="text" x-model="transferForm.sportTypes" placeholder="例如：running, cycling, swimming" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-sm text-gray-500 mt-1">留空表示同步所有类型的活动，多个类型用逗号分隔</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button @click="startTransfer()" :disabled="transferLoading || !transferForm.startDate || !transferForm.endDate" class="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                        <span x-show="!transferLoading">开始同步</span>
+                        <span x-show="transferLoading">同步中...</span>
+                    </button>
+                    <button @click="setTransferQuickDateRange(7)" class="px-4 py-2 text-sm text-blue-600 hover:text-blue-800">最近7天</button>
+                    <button @click="setTransferQuickDateRange(30)" class="px-4 py-2 text-sm text-blue-600 hover:text-blue-800">最近30天</button>
+                </div>
+            </div>
+
+            <!-- Transfer Progress -->
+            <div x-show="transferLoading" class="mb-6">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-700">同步进度</span>
+                    <span class="text-sm text-gray-500" x-text="transferProgressText"></span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" :style="'width: ' + transferProgress + '%'"></div>
+                </div>
+            </div>
+
+            <!-- Transfer Results -->
+            <div x-show="transferResult.show" class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-medium">同步结果</h3>
+                    <button @click="clearTransferResult()" class="text-sm text-gray-500 hover:text-gray-700">清除结果</button>
+                </div>
+
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-blue-50 p-4 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-blue-600" x-text="transferResult.total"></div>
+                        <div class="text-sm text-gray-600">总活动数</div>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-green-600" x-text="transferResult.uploaded"></div>
+                        <div class="text-sm text-gray-600">已同步</div>
+                    </div>
+                    <div class="bg-yellow-50 p-4 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-yellow-600" x-text="transferResult.skipped"></div>
+                        <div class="text-sm text-gray-600">已跳过</div>
+                    </div>
+                    <div class="bg-red-50 p-4 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-red-600" x-text="transferResult.failed.length"></div>
+                        <div class="text-sm text-gray-600">失败</div>
+                    </div>
+                </div>
+
+                <!-- Error Messages -->
+                <div x-show="transferResult.error" class="p-4 bg-red-100 text-red-700 rounded-lg" x-text="transferResult.error"></div>
+
+                <!-- Success Activities -->
+                <div x-show="transferResult.activities.filter(a => a.status === 'success').length > 0" class="mt-4">
+                    <h4 class="font-medium mb-2 text-green-700">已同步活动</h4>
+                    <div class="bg-green-50 p-4 rounded-lg max-h-60 overflow-y-auto">
+                        <ul class="space-y-1">
+                            <template x-for="item in transferResult.activities.filter(a => a.status === 'success')" :key="item.label_id">
+                                <li class="text-sm text-green-800 flex items-center">
+                                    <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                                    </svg>
+                                    <span x-text="item.name + ' (' + item.time + ')'"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Failed Activities -->
+                <div x-show="transferResult.failed.length > 0" class="mt-4">
+                    <h4 class="font-medium mb-2 text-red-700">同步失败</h4>
+                    <div class="bg-red-50 p-4 rounded-lg max-h-60 overflow-y-auto">
+                        <ul class="space-y-1">
+                            <template x-for="item in transferResult.failed" :key="item.label_id">
+                                <li class="text-sm text-red-800 flex items-start">
+                                    <svg class="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                    </svg>
+                                    <span x-text="item.name + ': ' + (item.error || '未知错误')"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div x-show="!transferResult.show && !transferLoading && transferHistory.length === 0" class="text-center py-12 text-gray-500">
+                <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+                </svg>
+                <p>选择日期范围，然后点击"开始同步"将高驰活动同步到佳明</p>
+                <p class="text-sm text-gray-400 mt-2">需要先在账号管理中配置佳明和高驰账号</p>
+            </div>
+
+            <!-- Transfer History -->
+            <div x-show="transferHistory.length > 0" class="mt-8">
+                <h3 class="text-lg font-medium mb-4">同步历史</h3>
+                <div class="overflow-x-auto max-h-80 overflow-y-auto border rounded-lg">
+                    <table class="w-full table-auto">
+                        <thead class="bg-gray-50 sticky top-0">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">时间</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">日期范围</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">总数</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">成功</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">跳过</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">失败</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="record in transferHistory" :key="record.id">
+                                <tr class="border-t hover:bg-gray-50">
+                                    <td class="px-4 py-2 text-sm text-gray-600" x-text="formatDate(record.created_at)"></td>
+                                    <td class="px-4 py-2 text-sm text-gray-600" x-text="record.start_date + ' ~ ' + record.end_date"></td>
+                                    <td class="px-4 py-2 text-sm font-medium text-blue-600" x-text="record.total"></td>
+                                    <td class="px-4 py-2 text-sm font-medium text-green-600" x-text="record.success"></td>
+                                    <td class="px-4 py-2 text-sm font-medium text-yellow-600" x-text="record.skipped"></td>
+                                    <td class="px-4 py-2 text-sm font-medium text-red-600" x-text="record.failed"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Scheduler Tab -->
         <div x-show="tab === 'tasks'" class="bg-white p-6 rounded shadow">
             <div class="flex justify-between items-center mb-6">
@@ -377,6 +562,24 @@
                     failedList: [],
                     error: ''
                 },
+                transferForm: {
+                    startDate: '',
+                    endDate: '',
+                    sportTypes: ''
+                },
+                transferLoading: false,
+                transferProgress: 0,
+                transferProgressText: '',
+                transferResult: {
+                    show: false,
+                    total: 0,
+                    downloaded: 0,
+                    uploaded: 0,
+                    skipped: 0,
+                    failed: [],
+                    activities: [],
+                    error: ''
+                },
                 accountModal: {
                     show: false,
                     editing: false,
@@ -400,10 +603,14 @@
                         activityTypes: ''
                     }
                 },
+                downloadHistory: [],
+                transferHistory: [],
 
                 async init() {
                     await this.loadAccounts();
                     await this.loadTasks();
+                    await this.loadDownloadHistory();
+                    await this.loadTransferHistory();
                 },
                 
                 async loadAccounts() {
@@ -589,6 +796,7 @@
                         this.downloadProgressText = '下载失败';
                     } finally {
                         this.downloadLoading = false;
+                        await this.loadDownloadHistory();
                     }
                 },
 
@@ -604,6 +812,78 @@
                     this.downloadResult.error = '';
                     this.downloadProgress = 0;
                     this.downloadProgressText = '';
+                },
+
+                setTransferQuickDateRange(days) {
+                    const end = new Date();
+                    const start = new Date();
+                    start.setDate(end.getDate() - days);
+                    this.transferForm.endDate = end.toISOString().split('T')[0];
+                    this.transferForm.startDate = start.toISOString().split('T')[0];
+                },
+
+                async startTransfer() {
+                    if (!this.transferForm.startDate || !this.transferForm.endDate) {
+                        alert('请选择开始和结束日期');
+                        return;
+                    }
+
+                    this.transferLoading = true;
+                    this.transferProgress = 0;
+                    this.transferProgressText = '准备同步...';
+                    this.clearTransferResult();
+
+                    try {
+                        const response = await fetch('/api/transfer', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                start_date: this.transferForm.startDate,
+                                end_date: this.transferForm.endDate,
+                                sport_types: this.transferForm.sportTypes ? this.transferForm.sportTypes.split(',').map(s => s.trim()) : null
+                            })
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            this.transferResult.show = true;
+                            this.transferResult.total = data.total || 0;
+                            this.transferResult.downloaded = data.downloaded || 0;
+                            this.transferResult.uploaded = data.uploaded || 0;
+                            this.transferResult.skipped = data.skipped || 0;
+                            this.transferResult.failed = data.failed || [];
+                            this.transferResult.activities = data.activities || [];
+                            this.transferProgress = 100;
+                            this.transferProgressText = `完成: ${data.uploaded} 已同步, ${data.skipped} 已跳过, ${data.failed.length} 失败`;
+                        } else {
+                            this.transferResult.show = true;
+                            this.transferResult.error = data.error || '同步失败';
+                            this.transferProgress = 0;
+                            this.transferProgressText = '同步失败';
+                        }
+                    } catch (error) {
+                        this.transferResult.show = true;
+                        this.transferResult.error = '网络错误: ' + error.message;
+                        this.transferProgress = 0;
+                        this.transferProgressText = '同步失败';
+                    } finally {
+                        this.transferLoading = false;
+                        await this.loadTransferHistory();
+                    }
+                },
+
+                clearTransferResult() {
+                    this.transferResult.show = false;
+                    this.transferResult.total = 0;
+                    this.transferResult.downloaded = 0;
+                    this.transferResult.uploaded = 0;
+                    this.transferResult.skipped = 0;
+                    this.transferResult.failed = [];
+                    this.transferResult.activities = [];
+                    this.transferResult.error = '';
+                    this.transferProgress = 0;
+                    this.transferProgressText = '';
                 },
 
                 async loadTasks() {
@@ -724,6 +1004,26 @@
                         }
                     } catch (error) {
                         alert('网络错误');
+                    }
+                },
+
+                async loadDownloadHistory() {
+                    try {
+                        const response = await fetch('/api/history/download?limit=20');
+                        const data = await response.json();
+                        this.downloadHistory = data.history || [];
+                    } catch (error) {
+                        console.error('Failed to load download history:', error);
+                    }
+                },
+
+                async loadTransferHistory() {
+                    try {
+                        const response = await fetch('/api/history/transfer?limit=20');
+                        const data = await response.json();
+                        this.transferHistory = data.history || [];
+                    } catch (error) {
+                        console.error('Failed to load transfer history:', error);
                     }
                 }
             }
