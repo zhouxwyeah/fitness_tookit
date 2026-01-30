@@ -1,14 +1,16 @@
 # Fitness Toolkit
 
-本地化的运动数据同步工具，支持从高驰(COROS)同步运动记录到佳明(Garmin)。
+个人运动数据同步工具，支持从高驰(COROS)同步运动记录到佳明(Garmin China)。
 
 ## 功能特性
 
-- **账户管理**: 安全存储 COROS 和 Garmin 账户凭据（密码加密存储）
-- **活动下载**: 从 COROS/Garmin 下载指定日期范围的运动数据
-- **跨平台同步**: 从 COROS 下载 TCX 文件并上传到 Garmin
-- **Web 界面**: 提供友好的浏览器操作界面
-- **命令行工具**: 支持 CLI 命令行操作
+- **账户管理**: 安全存储 COROS 和 Garmin 账户凭据（密码使用 Fernet 加密）
+- **活动下载**: 从 COROS/Garmin 下载指定日期范围的运动数据（支持 TCX/GPX/FIT 格式）
+- **跨平台同步**: 从 COROS 下载 FIT 文件并上传到 Garmin China
+- **Web 界面**: 基于 Flask + Alpine.js 的浏览器操作界面
+- **命令行工具**: 完整的 CLI 支持（Click）
+- **操作历史**: 自动记录下载和同步历史
+- **定时任务**: 支持配置定时同步任务（APScheduler）
 
 ## 安装
 
@@ -99,33 +101,43 @@ python -m fitness_toolkit transfer --start 2024-01-01 --end 2024-01-31
 # 按运动类型过滤
 python -m fitness_toolkit transfer --start 2024-01-01 --end 2024-01-31 --sport-type running --sport-type cycling
 
-# 指定 TCX 文件保存目录
+# 指定 FIT 文件保存目录
 python -m fitness_toolkit transfer --start 2024-01-01 --end 2024-01-31 --save-dir ./downloads
 ```
+
+## 技术栈
+
+- **Python 3.10+**
+- **Web 框架**: Flask + Alpine.js + Tailwind CSS
+- **CLI 框架**: Click
+- **数据库**: SQLite (WAL 模式)
+- **加密**: Fernet (cryptography)
+- **定时任务**: APScheduler
+- **Garmin API**: garth 库
+- **COROS API**: 原生 HTTP (requests)
 
 ## 项目结构
 
 ```
 fitness_toolkit/
-├── __init__.py            # 包初始化
-├── __main__.py            # 入口点
-├── cli.py                 # CLI 命令实现
-├── config.py              # 配置管理
-├── crypto.py              # 密码加密
-├── database.py            # SQLite 数据库操作
+├── __main__.py            # 包入口: python -m fitness_toolkit
+├── cli.py                 # Click CLI 命令
+├── config.py              # 配置管理 (.env 支持)
+├── crypto.py              # Fernet 密码加密
+├── database.py            # SQLite 操作 (账户/历史/任务)
 ├── logger.py              # 日志配置
 ├── clients/               # 平台 API 客户端
-│   ├── base.py            # 基类
-│   ├── garmin.py          # Garmin 客户端（使用 garth 库）
-│   └── coros.py           # COROS 客户端
-├── services/              # 业务逻辑层
-│   ├── account.py         # 账户管理服务
-│   ├── download.py        # 下载服务
-│   ├── transfer.py        # 同步服务
-│   └── scheduler.py       # 调度服务
+│   ├── base.py            # BaseClient ABC
+│   ├── garmin.py          # Garmin China (garth)
+│   └── coros.py           # COROS Training Hub
+├── services/              # 业务逻辑
+│   ├── account.py         # 账户管理
+│   ├── download.py        # 活动下载
+│   ├── transfer.py        # COROS→Garmin 同步
+│   └── scheduler.py       # 定时任务
 └── web/                   # Web 应用
-    ├── app.py             # Flask 应用
-    └── templates/         # 页面模板
+    ├── app.py             # Flask API 路由
+    └── templates/         # Jinja2 模板 (index.html)
 ```
 
 ## 开发
@@ -141,11 +153,35 @@ ruff check .
 black .
 ```
 
+## 测试
+
+项目包含完整的测试套件：
+
+```bash
+# 运行所有测试
+pytest
+
+# 运行特定测试文件
+pytest tests/test_web_transfer.py
+
+# 带覆盖率报告
+pytest --cov=fitness_toolkit --cov-report=html
+```
+
+测试覆盖：
+- 加密/解密模块 (`test_crypto.py`)
+- 数据库操作 (`test_database.py`)
+- Web API 端点 (`test_web_*.py`)
+- 账户管理、下载、同步、定时任务
+
 ## 注意事项
 
-- 密码使用 Fernet 加密存储，请妥善保管 `.env` 文件中的密钥
-- Web 服务默认只绑定到 localhost，不要暴露到公网
-- 同步时会自动跳过 Garmin 中已存在的活动（通过活动名称判断）
+- **单账户设计**: 每个平台仅支持一个账户（platform 作为主键）
+- **密码加密**: 使用 Fernet 加密存储，请妥善保管 `.env` 文件中的 `FITNESS_ENCRYPTION_KEY`
+- **本地服务**: Web 服务默认只绑定到 `127.0.0.1:5000`，请勿暴露到公网
+- **重复检测**: 同步时自动跳过 Garmin 中已存在的活动（通过 HTTP 409 或 code 202 判断）
+- **文件格式**: 同步使用 FIT 格式（TCX 有扩展名兼容性问题）
+- **Garmin 中国**: 专为中国区 Garmin Connect 优化（`garmin.cn` 域名）
 
 ## 许可证
 
