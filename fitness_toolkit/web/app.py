@@ -144,11 +144,32 @@ def create_app():
     def transfer():
         from datetime import datetime
         data = request.json
-        transfer_service = TransferService()
+        
+        # Validate required fields
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
+        
+        if 'start_date' not in data or 'end_date' not in data:
+            return jsonify({'error': 'start_date and end_date are required'}), 400
+        
+        # Validate date format
         try:
             start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
             end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
-            sport_types = data.get('sport_types')
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        
+        # Validate date range
+        if start_date > end_date:
+            return jsonify({'error': 'start_date must be before or equal to end_date'}), 400
+        
+        # Validate sport_types
+        sport_types = data.get('sport_types')
+        if sport_types is not None and not isinstance(sport_types, list):
+            return jsonify({'error': 'sport_types must be a list'}), 400
+        
+        transfer_service = TransferService()
+        try:
             result = transfer_service.transfer(
                 start_date=start_date,
                 end_date=end_date,

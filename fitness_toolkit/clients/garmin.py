@@ -140,7 +140,7 @@ class GarminClient(BaseClient):
                     failure = failures[0]
                     if failure["messages"][0]["code"] == 202:
                         logger.warning("Activity already exists on Garmin")
-                        return failure["internalId"]
+                        return "duplicate"
                     else:
                         logger.error(f"Upload failed: {failure['messages']}")
                 else:
