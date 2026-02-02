@@ -114,7 +114,11 @@ class TransferService:
                 result["local_path"] = str(downloaded)
 
             logger.info(f"Uploading {label_id} to Garmin")
-            garmin_id = garmin_client.upload_fit(fit_path, activity_name)
+            garmin_id = garmin_client.upload_fit(
+                fit_path,
+                activity_name,
+                start_time=activity_time,
+            )
 
             if garmin_id == "duplicate":
                 result["status"] = "skipped"

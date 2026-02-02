@@ -9,6 +9,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _get_int_env(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class Config:
     """Application configuration."""
     
@@ -36,6 +46,18 @@ class Config:
     RETRY_DELAY_BASE = 1  # seconds
     REQUEST_TIMEOUT = 30  # seconds
     RATE_LIMIT_DELAY = 1  # seconds between requests
+
+    # Duplicate detection / confirmation
+    # When Garmin upload returns an empty result, we confirm duplicates by searching
+    # Garmin activities near the COROS start time.
+    DUPLICATE_CONFIRM_WINDOW_SECONDS = _get_int_env(
+        "FITNESS_DUPLICATE_CONFIRM_WINDOW_SECONDS",
+        15 * 60,
+    )
+    DUPLICATE_CONFIRM_SEARCH_DAYS = _get_int_env(
+        "FITNESS_DUPLICATE_CONFIRM_SEARCH_DAYS",
+        1,
+    )
     
     @classmethod
     def ensure_directories(cls):
