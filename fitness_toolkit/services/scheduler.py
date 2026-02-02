@@ -4,8 +4,12 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+except ModuleNotFoundError:  # pragma: no cover
+    BackgroundScheduler = None  # type: ignore[assignment]
+    CronTrigger = None  # type: ignore[assignment]
 
 from fitness_toolkit.database import (
     save_sync_task as db_save_sync_task,
@@ -22,6 +26,10 @@ class SchedulerService:
     """Service for managing scheduled sync tasks - one per platform."""
     
     def __init__(self):
+        if BackgroundScheduler is None:
+            raise RuntimeError(
+                "apscheduler is not installed; install requirements.txt to use scheduling"
+            )
         self.scheduler = BackgroundScheduler()
         self.download_service = DownloadService()
         self._job_ids = {}
@@ -60,6 +68,10 @@ class SchedulerService:
     
     def _schedule_task(self, platform: str, task: Dict):
         """Schedule a task for a platform."""
+        if CronTrigger is None:
+            raise RuntimeError(
+                "apscheduler is not installed; install requirements.txt to use scheduling"
+            )
         job_id = f"sync_{platform}"
         
         try:

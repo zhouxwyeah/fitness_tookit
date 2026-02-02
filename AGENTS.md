@@ -2,8 +2,6 @@
 
 > Personal fitness data sync tool: COROS → Garmin China
 
----
-
 ## COMMANDS
 
 ```bash
@@ -19,86 +17,77 @@ python -m fitness_toolkit --help           # CLI help
 pytest                                     # All tests
 pytest tests/test_crypto.py                # Single test file
 pytest tests/test_crypto.py::test_encrypt_decrypt_roundtrip  # Single test
+pytest tests/test_transfer_queue.py::TestTransferQueueService::test_create_job  # Class method
 pytest -k "transfer"                       # Tests matching pattern
 pytest -v --tb=short                       # Verbose with short tracebacks
 
 # Linting & Formatting
 ruff check .                               # Lint all files
-ruff check fitness_toolkit/                # Lint source only
-ruff check tests/                          # Lint tests only
 ruff check . --fix                         # Auto-fix issues
 black .                                    # Format all files
-black --check .                            # Check formatting without changes
+black --check .                            # Check formatting only
 ```
-
----
 
 ## CODE STYLE
 
 ### Imports
 - **Order**: stdlib → third-party → local (ruff I sorts automatically)
 - **Style**: Use `from x import y` for specific imports
-- **Example**:
-  ```python
-  import logging
-  from datetime import date
-  from pathlib import Path
-  from typing import Optional
+```python
+import logging
+from datetime import datetime
+from typing import Any, Optional
 
-  import requests
-  from flask import Flask
+import requests
+from flask import Flask, jsonify
 
-  from fitness_toolkit.config import Config
-  ```
+from fitness_toolkit.config import Config
+from fitness_toolkit.services.transfer_queue import TransferQueueService
+```
 
 ### Formatting
 - **Line length**: 88 characters (black/ruff default)
 - **Quotes**: Double quotes for strings
 - **Trailing commas**: Use in multi-line structures
-- **Tool**: black for formatting, ruff for linting
+- **Tools**: black for formatting, ruff for linting
 
 ### Naming Conventions
 | Type | Convention | Example |
 |------|------------|---------|
-| Modules | `snake_case.py` | `account_service.py` |
-| Classes | `PascalCase` | `AccountService` |
+| Modules | `snake_case.py` | `transfer_queue.py` |
+| Classes | `PascalCase` | `TransferQueueService` |
 | Functions | `snake_case()` | `get_account()` |
-| Constants | `UPPER_SNAKE_CASE` | `MAX_RETRY_COUNT` |
+| Constants | `UPPER_SNAKE_CASE` | `JOB_STATUS_PENDING` |
 | Private | `_leading_underscore` | `_internal_helper()` |
-| Type variables | `PascalCase` | `T`, `ResponseType` |
 
-### Type Hints
-- **Required** for all function signatures
-- **Use**: `Optional[X]` or `X | None` for nullable types
-- **Use**: `list[X]`, `dict[K, V]` instead of `List`, `Dict` (Python 3.10+)
-- **Example**:
-  ```python
-  def download_activity(
-      activity_id: str,
-      format: str,
-      save_path: Path,
-  ) -> Optional[Path]:
-  ```
+### Type Hints (Required)
+```python
+def create_job(
+    self,
+    start_date: str,
+    end_date: str,
+    activities: list[dict[str, Any]],
+    sport_types: Optional[list[str]] = None,
+) -> int:
+```
+- Use `X | None` or `Optional[X]` for nullable types
+- Use `list[X]`, `dict[K, V]` (Python 3.10+ style)
 
 ### Error Handling
+```python
+try:
+    result = risky_operation()
+except ValueError as e:
+    logger.error(f"Invalid input: {e}")
+    raise TransferError("Download failed") from e
+```
 - **Never** use bare `except:` - always catch specific exceptions
 - **Log** errors with context before raising
 - **Use** `raise ... from err` for exception chaining
-- **Example**:
-  ```python
-  try:
-      result = risky_operation()
-  except ValueError as e:
-      logger.error(f"Invalid input: {e}")
-      raise TransferError("Download failed") from e
-  ```
 
 ### Documentation
-- **Docstrings**: Use triple quotes for modules, classes, public functions
-- **Style**: Google or NumPy style (be consistent within file)
-- **Comments**: Explain "why", not "what" (code should be self-explanatory)
-
----
+- **Docstrings**: Google style for modules, classes, public functions
+- **Comments**: Explain "why", not "what"
 
 ## PROJECT STRUCTURE
 
@@ -108,105 +97,76 @@ fitness_toolkit/
 ├── cli.py                 # Click CLI commands
 ├── config.py              # Config + .env support
 ├── crypto.py              # Fernet password encryption
-├── database.py            # SQLite (accounts, history, tasks)
-├── logger.py              # Module loggers → logs/
+├── database.py            # SQLite operations
 ├── clients/               # Platform API clients
-│   ├── base.py            # BaseClient ABC
-│   ├── garmin.py          # Garmin China via garth
-│   └── coros.py           # COROS API
+│   ├── coros.py           # COROS API
+│   └── garmin.py          # Garmin China via garth
 ├── services/              # Business logic
 │   ├── account.py         # Account CRUD
-│   ├── download.py        # Download activities
-│   ├── transfer.py        # COROS→Garmin sync
-│   └── scheduler.py       # APScheduler tasks
-└── web/                   # Flask app
-    ├── app.py             # API routes + Alpine.js UI
-    └── templates/         # Jinja2 (single index.html)
+│   ├── transfer.py        # Sync transfer (legacy)
+│   ├── transfer_queue.py  # Async job queue
+│   ├── transfer_worker.py # Background worker
+│   └── transfer_settings.py # Settings + templates
+└── web/
+    ├── app.py             # Flask API routes
+    └── templates/         # Alpine.js UI (index.html)
 ```
-
----
-
-## KEY DESIGN PRINCIPLES
-
-### Personal Tool Mode
-- **One account per platform**: `platform` is primary key in `accounts` table
-- **Platform-based CLI**: `download coros` not `download --account-id 1`
-- **No multi-tenancy**: Single user, local SQLite
-- **Local only**: Web binds to `127.0.0.1:5000`, never expose to `0.0.0.0`
-
-### Security
-- **Passwords**: Encrypted with Fernet before DB storage
-- **Key**: Store in `.env` as `FITNESS_ENCRYPTION_KEY`
-- **Generate**: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
-- **Logging**: Never log passwords/tokens - use `***` placeholder
-
-### Transfer Flow (COROS → Garmin)
-1. Download FIT from COROS (not TCX - extension compatibility issues)
-2. Upload FIT to Garmin via `garth.client.post("connectapi", "/upload-service/upload")`
-3. Handle 409 Conflict or code 202 = duplicate (skip, not error)
-
----
 
 ## TESTING GUIDELINES
 
 ### Test Structure
-- **Location**: `tests/test_*.py` (no `conftest.py`)
-- **Naming**: `test_<function_name>()` or `test_<class>_<method>()`
-- **Style**: Simple pytest functions, avoid complex fixtures
+- **Location**: `tests/test_*.py`
+- **Naming**: `test_<function>()` or `Test<Class>::test_<method>()`
+- **Fixtures**: Use `pytest.fixture` with `tmp_path` for temp files
 
-### Mocking
-- **Always** mock external APIs (COROS, Garmin)
-- **Use**: `pytest-mock` or `unittest.mock`
-- **Example**:
-  ```python
-  def test_transfer_api_success(client, monkeypatch):
-      mock_service = MagicMock()
-      mock_service.transfer.return_value = {"total": 3, "uploaded": 2}
-      monkeypatch.setattr("fitness_toolkit.web.app.TransferService", lambda: mock_service)
-      # ... test code
-  ```
+### Database Testing Pattern
+```python
+@pytest.fixture
+def db_path(tmp_path, monkeypatch):
+    """Set up temp database."""
+    db_file = tmp_path / "test_fitness.db"
+    monkeypatch.setattr("fitness_toolkit.config.Config.DATABASE_PATH", db_file)
+    monkeypatch.setattr("fitness_toolkit.database.Config.DATABASE_PATH", db_file)
+    init_db()
+    return db_file
+```
 
-### Database Testing
-- **Use** temporary databases (don't pollute `data/fitness.db`)
-- **Mock** `Config.DATABASE_PATH` to point to temp file
-- **Cleanup** test files after each test
+### Mocking External APIs
+```python
+def test_transfer_api_success(client, monkeypatch):
+    mock_service = MagicMock()
+    mock_service.transfer.return_value = {"total": 3, "uploaded": 2}
+    monkeypatch.setattr("fitness_toolkit.web.app.TransferService", lambda: mock_service)
+```
 
----
+## KEY DESIGN PRINCIPLES
+
+- **One account per platform**: `platform` is primary key
+- **Local only**: Web binds to `127.0.0.1:5000`, never `0.0.0.0`
+- **Passwords**: Fernet encrypted, key in `.env` as `FITNESS_ENCRYPTION_KEY`
+- **Logging**: Never log passwords/tokens - use `***` placeholder
+
+### Transfer Flow (COROS → Garmin)
+1. Create job via `TransferQueueService.create_job()`
+2. Worker downloads FIT from COROS (not TCX)
+3. Upload to Garmin via garth
+4. Handle 409/202 = duplicate (skip, not error)
 
 ## GIT COMMITS
 
-Use conventional commits format:
-
 ```
-feat: add Garmin client authentication
+feat: add async transfer job queue
 fix: handle token refresh failure
-test: add crypto module tests
-docs: update documentation
+test: add transfer worker tests
 refactor: simplify download service
-chore: update dependencies
 ```
-
----
 
 ## ANTI-PATTERNS
 
-| Pattern | Alternative |
-|---------|-------------|
+| Avoid | Use Instead |
+|-------|-------------|
 | Bare `except:` | `except Exception:` or specific |
-| Real API calls in tests | `pytest-mock` |
+| Real API calls in tests | `pytest-mock` / `monkeypatch` |
 | Hardcoded credentials | `.env` + Fernet |
-| `as any` / type suppression | Fix the types |
+| `print()` for debugging | `logging` module |
 | Expose web to `0.0.0.0` | `127.0.0.1` only |
-| Print instead of logging | `logging` module |
-
----
-
-## EXTERNAL LIBS
-
-| Library | Purpose |
-|---------|---------|
-| garth | Garmin Connect API |
-| Click | CLI framework |
-| Flask | Web framework |
-| APScheduler | Task scheduling |
-| cryptography | Fernet encryption |
