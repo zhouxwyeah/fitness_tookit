@@ -17,6 +17,7 @@
             <button @click="tab = 'accounts'" :class="{'bg-blue-500 text-white': tab === 'accounts', 'bg-gray-200': tab !== 'accounts'}" class="px-4 py-2 rounded mr-2">账号管理</button>
             <button @click="tab = 'download'" :class="{'bg-blue-500 text-white': tab === 'download', 'bg-gray-200': tab !== 'download'}" class="px-4 py-2 rounded mr-2">下载数据</button>
             <button @click="tab = 'transfer'" :class="{'bg-blue-500 text-white': tab === 'transfer', 'bg-gray-200': tab !== 'transfer'}" class="px-4 py-2 rounded mr-2">同步到佳明</button>
+            <button @click="tab = 'settings'" :class="{'bg-blue-500 text-white': tab === 'settings', 'bg-gray-200': tab !== 'settings'}" class="px-4 py-2 rounded mr-2">同步设置</button>
             <button @click="tab = 'tasks'" :class="{'bg-blue-500 text-white': tab === 'tasks', 'bg-gray-200': tab !== 'tasks'}" class="px-4 py-2 rounded">定时任务</button>
         </nav>
         
@@ -242,6 +243,7 @@
                                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">成功</th>
                                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">跳过</th>
                                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">失败</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">操作</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -256,6 +258,9 @@
                                     <td class="px-4 py-2 text-sm font-medium text-green-600" x-text="record.success"></td>
                                     <td class="px-4 py-2 text-sm font-medium text-yellow-600" x-text="record.skipped"></td>
                                     <td class="px-4 py-2 text-sm font-medium text-red-600" x-text="record.failed"></td>
+                                    <td class="px-4 py-2">
+                                        <button @click="deleteDownloadHistory(record.id)" class="text-red-600 hover:text-red-800 text-sm">删除</button>
+                                    </td>
                                 </tr>
                             </template>
                         </tbody>
@@ -394,6 +399,7 @@
                                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">成功</th>
                                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">跳过</th>
                                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">失败</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700">操作</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -405,10 +411,166 @@
                                     <td class="px-4 py-2 text-sm font-medium text-green-600" x-text="record.success"></td>
                                     <td class="px-4 py-2 text-sm font-medium text-yellow-600" x-text="record.skipped"></td>
                                     <td class="px-4 py-2 text-sm font-medium text-red-600" x-text="record.failed"></td>
+                                    <td class="px-4 py-2">
+                                        <button @click="deleteTransferHistory(record.id)" class="text-red-600 hover:text-red-800 text-sm">删除</button>
+                                    </td>
                                 </tr>
                             </template>
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div x-show="tab === 'settings'" class="bg-white p-6 rounded shadow">
+            <h2 class="text-xl font-semibold mb-6">同步设置</h2>
+            <p class="text-gray-600 mb-6">配置 COROS 到 Garmin 同步时的命名模板、重试策略、隐私设置等</p>
+
+            <!-- Settings Loading -->
+            <div x-show="settingsLoading" class="text-center py-8">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                <p class="mt-2 text-gray-600">加载设置中...</p>
+            </div>
+
+            <!-- Settings Form -->
+            <div x-show="!settingsLoading" class="space-y-6">
+                <!-- Settings Error -->
+                <div x-show="settingsError" class="p-4 bg-red-100 text-red-700 rounded-lg" x-text="settingsError"></div>
+
+                <!-- Naming Section -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="font-medium mb-4 text-gray-800">命名模板</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">活动标题模板</label>
+                            <input type="text" x-model="settingsForm.naming.title_template" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm">
+                            <p class="text-sm text-gray-500 mt-1">可用变量: {sport}, {start_local:%Y-%m-%d %H:%M}, {distance_km}, {duration_formatted}, {name}, {label_id}</p>
+                            <p x-show="settingsFieldErrors['naming.title_template']" class="text-sm text-red-600 mt-1" x-text="settingsFieldErrors['naming.title_template']"></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">活动描述模板（可选）</label>
+                            <textarea x-model="settingsForm.naming.description_template" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" placeholder="留空表示不设置描述"></textarea>
+                            <p x-show="settingsFieldErrors['naming.description_template']" class="text-sm text-red-600 mt-1" x-text="settingsFieldErrors['naming.description_template']"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Preview Section -->
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-medium text-blue-800">模板预览</h3>
+                        <button @click="previewSettings()" :disabled="previewLoading" class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 disabled:opacity-50">
+                            <span x-show="!previewLoading">预览效果</span>
+                            <span x-show="previewLoading">预览中...</span>
+                        </button>
+                    </div>
+                    <div x-show="previewResult.title || previewResult.description" class="space-y-2">
+                        <div x-show="previewResult.title">
+                            <span class="text-sm text-gray-600">标题: </span>
+                            <span class="font-medium text-blue-900" x-text="previewResult.title"></span>
+                        </div>
+                        <div x-show="previewResult.description">
+                            <span class="text-sm text-gray-600">描述: </span>
+                            <span class="text-blue-900" x-text="previewResult.description"></span>
+                        </div>
+                    </div>
+                    <p x-show="!previewResult.title && !previewResult.description" class="text-sm text-gray-500">点击"预览效果"查看模板渲染结果</p>
+                </div>
+
+                <!-- Retry Section -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="font-medium mb-4 text-gray-800">重试策略</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">最大重试次数</label>
+                            <input type="number" x-model.number="settingsForm.retry.max_attempts" min="1" max="10" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p x-show="settingsFieldErrors['retry.max_attempts']" class="text-sm text-red-600 mt-1" x-text="settingsFieldErrors['retry.max_attempts']"></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">基础延迟(秒)</label>
+                            <input type="number" x-model.number="settingsForm.retry.base_delay_seconds" min="0" max="60" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p x-show="settingsFieldErrors['retry.base_delay_seconds']" class="text-sm text-red-600 mt-1" x-text="settingsFieldErrors['retry.base_delay_seconds']"></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">最大延迟(秒)</label>
+                            <input type="number" x-model.number="settingsForm.retry.max_delay_seconds" min="1" max="300" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p x-show="settingsFieldErrors['retry.max_delay_seconds']" class="text-sm text-red-600 mt-1" x-text="settingsFieldErrors['retry.max_delay_seconds']"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Concurrency Section -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="font-medium mb-4 text-gray-800">并发设置</h3>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">并发数</label>
+                        <input type="number" x-model.number="settingsForm.concurrency" min="1" max="10" class="w-32 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-sm text-gray-500 mt-1">同时上传的活动数量（建议值: 2）</p>
+                        <p x-show="settingsFieldErrors['concurrency']" class="text-sm text-red-600 mt-1" x-text="settingsFieldErrors['concurrency']"></p>
+                    </div>
+                </div>
+
+                <!-- Privacy Section -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="font-medium mb-4 text-gray-800">隐私设置</h3>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">活动可见性</label>
+                        <select x-model="settingsForm.privacy.visibility" class="w-48 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="default">默认(不修改)</option>
+                            <option value="private">私密</option>
+                            <option value="public">公开</option>
+                        </select>
+                        <p class="text-sm text-gray-500 mt-1">"默认"表示使用 Garmin 账号的默认隐私设置</p>
+                    </div>
+                </div>
+
+                <!-- Gear Section -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="font-medium mb-4 text-gray-800">装备绑定</h3>
+                    <div class="space-y-4">
+                        <div class="flex items-center">
+                            <input type="checkbox" x-model="settingsForm.gear.enabled" id="gear-enabled" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                            <label for="gear-enabled" class="ml-2 block text-sm text-gray-700">启用装备自动绑定</label>
+                        </div>
+                        <div x-show="settingsForm.gear.enabled" class="pl-6 space-y-3">
+                            <div class="flex items-end space-x-3">
+                                <div class="flex-1">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">选择装备</label>
+                                    <select x-model="settingsForm.gear.gear_id" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <option value="">-- 请选择 --</option>
+                                        <template x-for="g in gearList" :key="g.id">
+                                            <option :value="g.id" x-text="g.name + (g.type ? ' (' + g.type + ')' : '')"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <button @click="refreshGearList()" :disabled="gearLoading" class="px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50">
+                                    <span x-show="!gearLoading">刷新列表</span>
+                                    <span x-show="gearLoading">加载中...</span>
+                                </button>
+                            </div>
+                            <div x-show="gearWarning" class="text-sm text-yellow-600" x-text="gearWarning"></div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">或手动输入装备 ID</label>
+                                <input type="text" x-model="settingsForm.gear.gear_id" placeholder="装备 UUID" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm">
+                                <p class="text-sm text-gray-500 mt-1">如果无法获取装备列表，可手动输入装备 ID</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Save Button -->
+                <div class="flex items-center justify-between pt-4 border-t">
+                    <button @click="resetSettings()" class="px-4 py-2 text-gray-600 hover:text-gray-800">重置为默认</button>
+                    <button @click="saveSettings()" :disabled="settingsSaving" class="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50">
+                        <span x-show="!settingsSaving">保存设置</span>
+                        <span x-show="settingsSaving">保存中...</span>
+                    </button>
+                </div>
+
+                <!-- Save Success Message -->
+                <div x-show="settingsSaved" x-transition class="p-4 bg-green-100 text-green-700 rounded-lg">
+                    设置已保存成功
                 </div>
             </div>
         </div>
@@ -605,12 +767,43 @@
                 },
                 downloadHistory: [],
                 transferHistory: [],
+                // Settings tab state
+                settingsLoading: false,
+                settingsError: '',
+                settingsFieldErrors: {},
+                settingsSaving: false,
+                settingsSaved: false,
+                settingsForm: {
+                    concurrency: 2,
+                    retry: {
+                        max_attempts: 3,
+                        base_delay_seconds: 1,
+                        max_delay_seconds: 60
+                    },
+                    naming: {
+                        title_template: '{sport} {start_local:%Y-%m-%d %H:%M}',
+                        description_template: ''
+                    },
+                    privacy: {
+                        visibility: 'default'
+                    },
+                    gear: {
+                        enabled: false,
+                        gear_id: null
+                    }
+                },
+                previewLoading: false,
+                previewResult: { title: '', description: '' },
+                gearList: [],
+                gearLoading: false,
+                gearWarning: '',
 
                 async init() {
                     await this.loadAccounts();
                     await this.loadTasks();
                     await this.loadDownloadHistory();
                     await this.loadTransferHistory();
+                    await this.loadSettings();
                 },
                 
                 async loadAccounts() {
@@ -1024,6 +1217,207 @@
                         this.transferHistory = data.history || [];
                     } catch (error) {
                         console.error('Failed to load transfer history:', error);
+                    }
+                },
+
+                async deleteDownloadHistory(id) {
+                    if (!confirm('确定要删除这条下载历史记录吗？')) {
+                        return;
+                    }
+                    try {
+                        const response = await fetch('/api/history/download/' + id, {
+                            method: 'DELETE'
+                        });
+                        if (response.ok) {
+                            await this.loadDownloadHistory();
+                        } else {
+                            alert('删除失败');
+                        }
+                    } catch (error) {
+                        alert('网络错误');
+                    }
+                },
+
+                async deleteTransferHistory(id) {
+                    if (!confirm('确定要删除这条同步历史记录吗？')) {
+                        return;
+                    }
+                    try {
+                        const response = await fetch('/api/history/transfer/' + id, {
+                            method: 'DELETE'
+                        });
+                        if (response.ok) {
+                            await this.loadTransferHistory();
+                        } else {
+                            alert('删除失败');
+                        }
+                    } catch (error) {
+                        alert('网络错误');
+                    }
+                },
+
+                // Settings methods
+                async loadSettings() {
+                    this.settingsLoading = true;
+                    this.settingsError = '';
+                    try {
+                        const response = await fetch('/api/settings/transfer');
+                        const data = await response.json();
+                        if (response.ok && data.settings) {
+                            // Deep merge with defaults to ensure all fields exist
+                            this.settingsForm = {
+                                concurrency: data.settings.concurrency || 2,
+                                retry: {
+                                    max_attempts: data.settings.retry?.max_attempts || 3,
+                                    base_delay_seconds: data.settings.retry?.base_delay_seconds || 1,
+                                    max_delay_seconds: data.settings.retry?.max_delay_seconds || 60
+                                },
+                                naming: {
+                                    title_template: data.settings.naming?.title_template || '{sport} {start_local:%Y-%m-%d %H:%M}',
+                                    description_template: data.settings.naming?.description_template || ''
+                                },
+                                privacy: {
+                                    visibility: data.settings.privacy?.visibility || 'default'
+                                },
+                                gear: {
+                                    enabled: data.settings.gear?.enabled || false,
+                                    gear_id: data.settings.gear?.gear_id || null
+                                }
+                            };
+                        }
+                    } catch (error) {
+                        console.error('Failed to load settings:', error);
+                        this.settingsError = '加载设置失败: ' + error.message;
+                    } finally {
+                        this.settingsLoading = false;
+                    }
+                },
+
+                async saveSettings() {
+                    this.settingsSaving = true;
+                    this.settingsError = '';
+                    this.settingsFieldErrors = {};
+                    this.settingsSaved = false;
+
+                    try {
+                        const response = await fetch('/api/settings/transfer', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ settings: this.settingsForm })
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            // Update form with normalized values
+                            if (data.settings) {
+                                this.settingsForm = {
+                                    concurrency: data.settings.concurrency || 2,
+                                    retry: data.settings.retry || this.settingsForm.retry,
+                                    naming: data.settings.naming || this.settingsForm.naming,
+                                    privacy: data.settings.privacy || this.settingsForm.privacy,
+                                    gear: data.settings.gear || this.settingsForm.gear
+                                };
+                            }
+                            this.settingsSaved = true;
+                            setTimeout(() => { this.settingsSaved = false; }, 3000);
+                        } else if (data.error === 'validation_error' && data.fields) {
+                            this.settingsFieldErrors = data.fields;
+                            this.settingsError = '请修正以下字段的错误';
+                        } else {
+                            this.settingsError = data.error || '保存失败';
+                        }
+                    } catch (error) {
+                        this.settingsError = '网络错误: ' + error.message;
+                    } finally {
+                        this.settingsSaving = false;
+                    }
+                },
+
+                async resetSettings() {
+                    if (!confirm('确定要重置为默认设置吗？')) {
+                        return;
+                    }
+                    this.settingsForm = {
+                        concurrency: 2,
+                        retry: {
+                            max_attempts: 3,
+                            base_delay_seconds: 1,
+                            max_delay_seconds: 60
+                        },
+                        naming: {
+                            title_template: '{sport} {start_local:%Y-%m-%d %H:%M}',
+                            description_template: ''
+                        },
+                        privacy: {
+                            visibility: 'default'
+                        },
+                        gear: {
+                            enabled: false,
+                            gear_id: null
+                        }
+                    };
+                    await this.saveSettings();
+                },
+
+                async previewSettings() {
+                    this.previewLoading = true;
+                    this.previewResult = { title: '', description: '' };
+
+                    // Sample activity for preview
+                    const sampleActivity = {
+                        labelId: '12345678',
+                        sportType: 100,
+                        name: '晨跑',
+                        startTime: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                        duration: 3600,
+                        distance: 10000,
+                        calorie: 500
+                    };
+
+                    try {
+                        const response = await fetch('/api/settings/transfer/preview', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                activity: sampleActivity,
+                                settings: this.settingsForm
+                            })
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok && data.rendered) {
+                            this.previewResult = {
+                                title: data.rendered.title || '',
+                                description: data.rendered.description || ''
+                            };
+                        }
+                    } catch (error) {
+                        console.error('Preview failed:', error);
+                    } finally {
+                        this.previewLoading = false;
+                    }
+                },
+
+                async refreshGearList() {
+                    this.gearLoading = true;
+                    this.gearWarning = '';
+
+                    try {
+                        const response = await fetch('/api/garmin/gear');
+                        const data = await response.json();
+
+                        if (data.gear && Array.isArray(data.gear)) {
+                            this.gearList = data.gear;
+                        }
+                        if (data.warning) {
+                            this.gearWarning = data.warning;
+                        }
+                    } catch (error) {
+                        this.gearWarning = '获取装备列表失败: ' + error.message;
+                    } finally {
+                        this.gearLoading = false;
                     }
                 }
             }

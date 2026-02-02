@@ -79,6 +79,76 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Transfer settings table (singleton row, id=1)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transfer_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                settings_json TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Transfer jobs table - async transfer jobs
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transfer_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                sport_types TEXT,
+                settings_snapshot TEXT NOT NULL,
+                total_items INTEGER DEFAULT 0,
+                completed_items INTEGER DEFAULT 0,
+                success_count INTEGER DEFAULT 0,
+                skipped_count INTEGER DEFAULT 0,
+                failed_count INTEGER DEFAULT 0,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP
+            )
+        """)
+
+        # Transfer items table - individual activities within a job
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transfer_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL,
+                label_id TEXT NOT NULL,
+                sport_type INTEGER,
+                activity_name TEXT,
+                activity_time TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                retry_count INTEGER DEFAULT 0,
+                local_path TEXT,
+                garmin_id TEXT,
+                error_message TEXT,
+                metadata_status TEXT DEFAULT 'pending',
+                metadata_error TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (job_id) REFERENCES transfer_jobs(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Create indices for efficient queries
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_transfer_jobs_status 
+            ON transfer_jobs(status)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_transfer_items_job_id 
+            ON transfer_items(job_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_transfer_items_status 
+            ON transfer_items(status)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_transfer_items_job_status 
+            ON transfer_items(job_id, status)
+        """)
         
         conn.commit()
         logger.info("Database initialized successfully")
@@ -238,3 +308,49 @@ def get_operation_history(operation_type=None, limit=50):
             if row.get('details'):
                 row['details'] = json.loads(row['details'])
         return rows
+
+
+def delete_operation_history(record_id: int) -> bool:
+    """Delete a single operation history record by ID.
+
+    Args:
+        record_id: The ID of the record to delete
+
+    Returns:
+        True if deleted, False if not found
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM operation_history WHERE id = ?", (record_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# Transfer settings operations (singleton row with id=1)
+def get_transfer_settings() -> "dict | None":
+    """Get transfer settings. Returns None if not initialized."""
+    import json
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT settings_json FROM transfer_settings WHERE id = 1")
+        row = cursor.fetchone()
+        if row:
+            return json.loads(row["settings_json"])
+        return None
+
+
+def save_transfer_settings(settings: dict) -> None:
+    """Save transfer settings (upsert singleton row)."""
+    import json
+    settings_json = json.dumps(settings, ensure_ascii=False)
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO transfer_settings (id, settings_json)
+               VALUES (1, ?)
+               ON CONFLICT(id) DO UPDATE SET
+               settings_json = excluded.settings_json,
+               updated_at = CURRENT_TIMESTAMP""",
+            (settings_json,)
+        )
+        conn.commit()
